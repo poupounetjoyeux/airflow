@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import ClientResponseError, RequestInfo
-from gcloud.aio.bigquery import Job, Table
+from gcloud.aio.bigquery import Table
 from multidict import CIMultiDict
 from yarl import URL
 
@@ -40,11 +40,15 @@ from airflow.providers.google.cloud.triggers.bigquery import (
 )
 from airflow.triggers.base import TriggerEvent
 
+pytestmark = pytest.mark.db_test
+
+
 TEST_CONN_ID = "bq_default"
 TEST_JOB_ID = "1234"
 TEST_GCP_PROJECT_ID = "test-project"
 TEST_DATASET_ID = "bq_dataset"
 TEST_TABLE_ID = "bq_table"
+TEST_LOCATION = "US"
 POLLING_PERIOD_SECONDS = 4.0
 TEST_SQL_QUERY = "SELECT count(*) from Any"
 TEST_PASS_VALUE = 2
@@ -57,6 +61,7 @@ TEST_DAYS_BACK = -7
 TEST_RATIO_FORMULA = "max_over_min"
 TEST_IGNORE_ZERO = True
 TEST_GCP_CONN_ID = "TEST_GCP_CONN_ID"
+TEST_IMPERSONATION_CHAIN = "TEST_SERVICE_ACCOUNT"
 TEST_HOOK_PARAMS: dict[str, Any] = {}
 TEST_PARTITION_ID = "1234"
 
@@ -69,7 +74,9 @@ def insert_job_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=TEST_LOCATION,
         poll_interval=POLLING_PERIOD_SECONDS,
+        impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -81,7 +88,9 @@ def get_data_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=None,
         poll_interval=POLLING_PERIOD_SECONDS,
+        impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -94,6 +103,7 @@ def table_existence_trigger():
         TEST_GCP_CONN_ID,
         TEST_HOOK_PARAMS,
         POLLING_PERIOD_SECONDS,
+        TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -113,6 +123,7 @@ def interval_check_trigger():
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
         poll_interval=POLLING_PERIOD_SECONDS,
+        impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -124,7 +135,9 @@ def check_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=None,
         poll_interval=POLLING_PERIOD_SECONDS,
+        impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -140,6 +153,7 @@ def value_check_trigger():
         table_id=TEST_TABLE_ID,
         tolerance=TEST_TOLERANCE,
         poll_interval=POLLING_PERIOD_SECONDS,
+        impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
 
 
@@ -156,7 +170,9 @@ class TestBigQueryInsertJobTrigger:
             "project_id": TEST_GCP_PROJECT_ID,
             "dataset_id": TEST_DATASET_ID,
             "table_id": TEST_TABLE_ID,
+            "location": TEST_LOCATION,
             "poll_interval": POLLING_PERIOD_SECONDS,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
         }
 
     @pytest.mark.asyncio
@@ -174,13 +190,11 @@ class TestBigQueryInsertJobTrigger:
         )
 
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_insert_job_trigger_running(self, mock_job_instance, caplog, insert_job_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_insert_job_trigger_running(self, mock_get_job, caplog, insert_job_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="RUNNING")
         caplog.set_level(logging.INFO)
 
         task = asyncio.create_task(insert_job_trigger.run().__anext__())
@@ -229,21 +243,21 @@ class TestBigQueryGetDataTrigger:
         assert kwargs == {
             "as_dict": False,
             "conn_id": TEST_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "job_id": TEST_JOB_ID,
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table_id": TEST_TABLE_ID,
+            "location": None,
             "poll_interval": POLLING_PERIOD_SECONDS,
         }
 
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_get_data_trigger_running(self, mock_job_instance, caplog, get_data_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_get_data_trigger_running(self, mock_get_job, caplog, get_data_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="running")
         caplog.set_level(logging.INFO)
 
         task = asyncio.create_task(get_data_trigger.run().__anext__())
@@ -336,13 +350,11 @@ class TestBigQueryGetDataTrigger:
 
 class TestBigQueryCheckTrigger:
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_check_trigger_running(self, mock_job_instance, caplog, check_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_check_trigger_running(self, mock_get_job, caplog, check_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="running")
 
         task = asyncio.create_task(check_trigger.run().__anext__())
         await asyncio.sleep(0.5)
@@ -389,10 +401,12 @@ class TestBigQueryCheckTrigger:
         assert classpath == "airflow.providers.google.cloud.triggers.bigquery.BigQueryCheckTrigger"
         assert kwargs == {
             "conn_id": TEST_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "job_id": TEST_JOB_ID,
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table_id": TEST_TABLE_ID,
+            "location": None,
             "poll_interval": POLLING_PERIOD_SECONDS,
         }
 
@@ -469,10 +483,12 @@ class TestBigQueryIntervalCheckTrigger:
         assert classpath == "airflow.providers.google.cloud.triggers.bigquery.BigQueryIntervalCheckTrigger"
         assert kwargs == {
             "conn_id": TEST_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "first_job_id": TEST_FIRST_JOB_ID,
             "second_job_id": TEST_SECOND_JOB_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table": TEST_TABLE_ID,
+            "location": None,
             "metrics_thresholds": TEST_METRIC_THRESHOLDS,
             "date_filter_column": TEST_DATE_FILTER_COLUMN,
             "days_back": TEST_DAYS_BACK,
@@ -559,10 +575,12 @@ class TestBigQueryValueCheckTrigger:
         assert classpath == "airflow.providers.google.cloud.triggers.bigquery.BigQueryValueCheckTrigger"
         assert kwargs == {
             "conn_id": TEST_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "pass_value": TEST_PASS_VALUE,
             "job_id": TEST_JOB_ID,
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
+            "location": None,
             "sql": TEST_SQL_QUERY,
             "table_id": TEST_TABLE_ID,
             "tolerance": TEST_TOLERANCE,
@@ -656,6 +674,7 @@ class TestBigQueryTableExistenceTrigger:
             "project_id": TEST_GCP_PROJECT_ID,
             "table_id": TEST_TABLE_ID,
             "gcp_conn_id": TEST_GCP_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "poll_interval": POLLING_PERIOD_SECONDS,
             "hook_params": TEST_HOOK_PARAMS,
         }
@@ -774,6 +793,7 @@ class TestBigQueryTablePartitionExistenceTrigger:
             partition_id=TEST_PARTITION_ID,
             poll_interval=POLLING_PERIOD_SECONDS,
             gcp_conn_id=TEST_GCP_CONN_ID,
+            impersonation_chain=TEST_IMPERSONATION_CHAIN,
             hook_params={},
         )
 
@@ -788,6 +808,7 @@ class TestBigQueryTablePartitionExistenceTrigger:
             "table_id": TEST_TABLE_ID,
             "partition_id": TEST_PARTITION_ID,
             "gcp_conn_id": TEST_GCP_CONN_ID,
+            "impersonation_chain": TEST_IMPERSONATION_CHAIN,
             "poll_interval": POLLING_PERIOD_SECONDS,
             "hook_params": TEST_HOOK_PARAMS,
         }

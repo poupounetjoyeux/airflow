@@ -28,19 +28,18 @@ from airflow.api_connexion.schemas.event_log_schema import (
     event_log_collection_schema,
     event_log_schema,
 )
+from airflow.auth.managers.models.resource_details import DagAccessEntity
 from airflow.models import Log
-from airflow.security import permissions
 from airflow.utils import timezone
 from airflow.utils.session import NEW_SESSION, provide_session
 
 if TYPE_CHECKING:
-
     from sqlalchemy.orm import Session
 
     from airflow.api_connexion.types import APIResponse
 
 
-@security.requires_access([(permissions.ACTION_CAN_READ, permissions.RESOURCE_AUDIT_LOG)])
+@security.requires_access_dag("GET", DagAccessEntity.AUDIT_LOG)
 @provide_session
 def get_event_log(*, event_log_id: int, session: Session = NEW_SESSION) -> APIResponse:
     """Get a log entry."""
@@ -50,15 +49,18 @@ def get_event_log(*, event_log_id: int, session: Session = NEW_SESSION) -> APIRe
     return event_log_schema.dump(event_log)
 
 
-@security.requires_access([(permissions.ACTION_CAN_READ, permissions.RESOURCE_AUDIT_LOG)])
+@security.requires_access_dag("GET", DagAccessEntity.AUDIT_LOG)
 @format_parameters({"limit": check_limit})
 @provide_session
 def get_event_logs(
     *,
     dag_id: str | None = None,
     task_id: str | None = None,
+    run_id: str | None = None,
     owner: str | None = None,
     event: str | None = None,
+    excluded_events: str | None = None,
+    included_events: str | None = None,
     before: str | None = None,
     after: str | None = None,
     limit: int,
@@ -73,6 +75,7 @@ def get_event_logs(
         "when",
         "dag_id",
         "task_id",
+        "run_id",
         "event",
         "execution_date",
         "owner",
@@ -85,10 +88,18 @@ def get_event_logs(
         query = query.where(Log.dag_id == dag_id)
     if task_id:
         query = query.where(Log.task_id == task_id)
+    if run_id:
+        query = query.where(Log.run_id == run_id)
     if owner:
         query = query.where(Log.owner == owner)
     if event:
         query = query.where(Log.event == event)
+    if included_events:
+        included_events_list = included_events.split(",")
+        query = query.where(Log.event.in_(included_events_list))
+    if excluded_events:
+        excluded_events_list = excluded_events.split(",")
+        query = query.where(Log.event.notin_(excluded_events_list))
     if before:
         query = query.where(Log.dttm < timezone.parse(before))
     if after:

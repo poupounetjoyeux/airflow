@@ -50,6 +50,9 @@ from tests.test_utils import db
 from tests.test_utils.config import conf_vars
 from tests.test_utils.mock_operators import MockOperator
 
+pytestmark = pytest.mark.db_test
+
+
 if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
 
@@ -87,9 +90,7 @@ class TestDagRun:
         session: Session,
     ):
         now = timezone.utcnow()
-        if execution_date is None:
-            execution_date = now
-        execution_date = pendulum.instance(execution_date)
+        execution_date = pendulum.instance(execution_date or now)
         if is_backfill:
             run_type = DagRunType.BACKFILL_JOB
             data_interval = dag.infer_automated_data_interval(execution_date)
@@ -917,10 +918,8 @@ class TestDagRun:
                 sched_delay_stat_call_with_tags = call(
                     "dagrun.first_task_scheduling_delay", true_delay, tags=expected_stat_tags
                 )
-                assert (
-                    sched_delay_stat_call in stats_mock.mock_calls
-                    and sched_delay_stat_call_with_tags in stats_mock.mock_calls
-                )
+                assert sched_delay_stat_call in stats_mock.mock_calls
+                assert sched_delay_stat_call_with_tags in stats_mock.mock_calls
             else:
                 # Assert that we never passed the metric
                 sched_delay_stat_call = call(
@@ -1041,8 +1040,7 @@ def test_mapped_literal_verify_integrity(dag_maker, session):
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=[1, 2, 3, 4])
 
@@ -1078,8 +1076,7 @@ def test_mapped_literal_to_xcom_arg_verify_integrity(dag_maker, session):
         t1 = BaseOperator(task_id="task_1")
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=[1, 2, 3, 4])
 
@@ -1119,8 +1116,7 @@ def test_mapped_literal_length_increase_adds_additional_ti(dag_maker, session):
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=[1, 2, 3, 4])
 
@@ -1165,8 +1161,7 @@ def test_mapped_literal_length_reduction_adds_removed_state(dag_maker, session):
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=[1, 2, 3, 4])
 
@@ -1218,8 +1213,7 @@ def test_mapped_length_increase_at_runtime_adds_additional_tis(dag_maker, sessio
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1283,8 +1277,7 @@ def test_mapped_literal_length_reduction_at_runtime_adds_removed_state(dag_maker
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1345,8 +1338,7 @@ def test_mapped_literal_faulty_state_in_db(dag_maker, session):
             return [1, 2]
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1380,8 +1372,7 @@ def test_mapped_literal_length_with_no_change_at_runtime_doesnt_call_verify_inte
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1438,8 +1429,7 @@ def test_calls_to_verify_integrity_with_mapped_task_increase_at_runtime(dag_make
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1526,8 +1516,7 @@ def test_calls_to_verify_integrity_with_mapped_task_reduction_at_runtime(dag_mak
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1606,8 +1595,7 @@ def test_calls_to_verify_integrity_with_mapped_task_with_no_changes_at_runtime(d
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -1688,8 +1676,7 @@ def test_calls_to_verify_integrity_with_mapped_task_zero_length_at_runtime(dag_m
     with dag_maker(session=session) as dag:
 
         @task
-        def task_2(arg2):
-            ...
+        def task_2(arg2): ...
 
         task_2.expand(arg2=task_1())
 
@@ -2531,7 +2518,6 @@ def test_failure_of_leaf_task_not_connected_to_teardown_task(dag_maker, session)
         (["s1 >> w1"], {"w1"}),  # no teardown
         (["s1 >> w1 >> t1_"], {"t1_"}),  # t1_ is natural leaf and OFFD=True;
         (["s1 >> w1 >> t1_", "s1 >> t1_"], {"t1_"}),  # t1_ is natural leaf and OFFD=True; wired to setup
-        (["s1 >> w1 >> t1_ >> w2", "s1 >> t1_"], {"w2"}),  # t1_ is not a natural leaf so excluded anyway
         (["s1 >> w1 >> t1_ >> w2", "s1 >> t1_"], {"w2"}),  # t1_ is not a natural leaf so excluded anyway
         (["t1 >> t2"], {"t2"}),  # all teardowns -- default to "leaves"
         (["w1 >> t1_ >> t2"], {"t1_"}),  # teardown to teardown

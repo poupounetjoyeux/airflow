@@ -18,18 +18,16 @@
 """
 Example Airflow DAG that uses Google AutoML services.
 """
+
 from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import cast
 
 from google.cloud.aiplatform import schema
 from google.protobuf.struct_pb2 import Value
 
 from airflow.models.dag import DAG
-from airflow.models.xcom_arg import XComArg
-from airflow.providers.google.cloud.hooks.automl import CloudAutoMLHook
 from airflow.providers.google.cloud.operators.gcs import (
     GCSCreateBucketOperator,
     GCSDeleteBucketOperator,
@@ -72,7 +70,11 @@ DATA_CONFIG = [
     },
 ]
 
-extract_object_id = CloudAutoMLHook.extract_object_id
+
+def extract_object_id(obj: dict) -> str:
+    """Returns unique id of the object."""
+    return obj["name"].rpartition("/")[-1]
+
 
 # Example DAG for AutoML Natural Language Text Sentiment
 with DAG(
@@ -115,7 +117,7 @@ with DAG(
         import_configs=DATA_CONFIG,
     )
 
-    # [START howto_operator_automl_create_model]
+    # [START howto_cloud_create_text_sentiment_training_job_operator]
     create_sent_training_job = CreateAutoMLTextTrainingJobOperator(
         task_id="create_sent_training_job",
         display_name=TEXT_SENT_DISPLAY_NAME,
@@ -131,8 +133,7 @@ with DAG(
         region=GCP_AUTOML_LOCATION,
         project_id=GCP_PROJECT_ID,
     )
-    # [END howto_operator_automl_create_model]
-    model_id = cast(str, XComArg(create_sent_training_job, key="model_id"))
+    # [END howto_cloud_create_text_sentiment_training_job_operator]
 
     delete_sent_training_job = DeleteAutoMLTrainingJobOperator(
         task_id="delete_sent_training_job",

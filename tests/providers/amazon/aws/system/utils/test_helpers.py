@@ -18,6 +18,7 @@
 This module contains the unit tests for the helper methods included in the Amazon System Tests found at
 tests/system/providers/amazon/aws/utils/__init__.py
 """
+
 from __future__ import annotations
 
 import os
@@ -26,7 +27,7 @@ from io import StringIO
 from unittest.mock import ANY, patch
 
 import pytest
-from moto import mock_ssm
+from moto import mock_aws
 
 from tests.system.providers.amazon.aws import utils
 from tests.system.providers.amazon.aws.utils import (
@@ -54,7 +55,7 @@ def provide_test_name():
         yield name
 
 
-@mock_ssm
+@mock_aws
 class TestAmazonSystemTestHelpers:
     FETCH_VARIABLE_TEST_CASES = [
         # Format is:
@@ -76,7 +77,7 @@ class TestAmazonSystemTestHelpers:
     def test_fetch_variable_success(
         self, mock_getenv, env_value, ssm_value, default_value, expected_result
     ) -> None:
-        mock_getenv.return_value = env_value if env_value else ssm_value
+        mock_getenv.return_value = env_value or ssm_value
 
         result = utils.fetch_variable(ANY, default_value) if default_value else utils.fetch_variable(ANY_STR)
 

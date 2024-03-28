@@ -39,9 +39,8 @@ from wtforms.validators import InputRequired, Optional
 from airflow.compat.functools import cache
 from airflow.configuration import conf
 from airflow.providers_manager import ProvidersManager
-from airflow.utils import timezone
 from airflow.utils.types import DagRunType
-from airflow.www.validators import ReadOnly, ValidKey
+from airflow.www.validators import ReadOnly, ValidConnID
 from airflow.www.widgets import (
     AirflowDateTimePickerROWidget,
     AirflowDateTimePickerWidget,
@@ -99,25 +98,6 @@ class DateTimeForm(FlaskForm):
     execution_date = DateTimeWithTimezoneField("Logical date", widget=AirflowDateTimePickerWidget())
 
 
-class DateTimeWithNumRunsForm(FlaskForm):
-    """Date time and number of runs form for tree view, task duration and landing times."""
-
-    base_date = DateTimeWithTimezoneField(
-        "Anchor date", widget=AirflowDateTimePickerWidget(), default=timezone.utcnow()
-    )
-    num_runs = SelectField(
-        "Number of runs",
-        default=25,
-        choices=(
-            (5, "5"),
-            (25, "25"),
-            (50, "50"),
-            (100, "100"),
-            (365, "365"),
-        ),
-    )
-
-
 class DagRunEditForm(DynamicForm):
     """Form for editing DAG Run.
 
@@ -142,7 +122,7 @@ class DagRunEditForm(DynamicForm):
     note = TextAreaField(lazy_gettext("User Note"), widget=BS3TextAreaFieldWidget())
 
     def populate_obj(self, item):
-        """Populates the attributes of the passed obj with data from the form's not-read-only fields."""
+        """Populate the attributes of the passed obj with data from the form's not-read-only fields."""
         for name, field in self._fields.items():
             if not field.flags.readonly:
                 field.populate_obj(item, name)
@@ -188,7 +168,7 @@ class TaskInstanceEditForm(DynamicForm):
     note = TextAreaField(lazy_gettext("User Note"), widget=BS3TextAreaFieldWidget())
 
     def populate_obj(self, item):
-        """Populates the attributes of the passed obj with data from the form's not-read-only fields."""
+        """Populate the attributes of the passed obj with data from the form's not-read-only fields."""
         for name, field in self._fields.items():
             if not field.flags.readonly:
                 field.populate_obj(item, name)
@@ -221,7 +201,7 @@ def create_connection_form_class() -> type[DynamicForm]:
 
         conn_id = StringField(
             lazy_gettext("Connection Id"),
-            validators=[InputRequired(), ValidKey()],
+            validators=[InputRequired(), ValidConnID()],
             widget=BS3TextFieldWidget(),
         )
         conn_type = SelectField(

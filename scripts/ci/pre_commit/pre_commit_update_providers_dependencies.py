@@ -40,6 +40,12 @@ AIRFLOW_SYSTEM_TESTS_PROVIDERS_DIR = AIRFLOW_SOURCES_ROOT / "system" / "tests" /
 
 DEPENDENCIES_JSON_FILE_PATH = AIRFLOW_SOURCES_ROOT / "generated" / "provider_dependencies.json"
 
+PYPROJECT_TOML_FILE_PATH = AIRFLOW_SOURCES_ROOT / "pyproject.toml"
+
+MY_FILE = Path(__file__).resolve()
+MY_MD5SUM_FILE = MY_FILE.parent / MY_FILE.name.replace(".py", ".py.md5sum")
+
+
 sys.path.insert(0, str(AIRFLOW_SOURCES_ROOT))  # make sure setup is imported from Airflow
 
 warnings: list[str] = []
@@ -89,7 +95,7 @@ class ImportFinder(NodeVisitor):
 
 
 def find_all_providers_and_provider_files():
-    for (root, _, filenames) in os.walk(AIRFLOW_PROVIDERS_DIR):
+    for root, _, filenames in os.walk(AIRFLOW_PROVIDERS_DIR):
         for filename in filenames:
             if filename == "provider.yaml":
                 provider_file = Path(root, filename)
@@ -97,10 +103,9 @@ def find_all_providers_and_provider_files():
                     os.sep, "."
                 )
                 provider_info = yaml.safe_load(provider_file.read_text())
-                if not provider_info["suspended"]:
-                    ALL_PROVIDERS[provider_name] = provider_info
-                else:
+                if provider_info["state"] == "suspended":
                     suspended_paths.append(provider_file.parent.relative_to(AIRFLOW_PROVIDERS_DIR).as_posix())
+                ALL_PROVIDERS[provider_name] = provider_info
             path = Path(root, filename)
             if path.is_file() and path.name.endswith(".py"):
                 ALL_PROVIDER_FILES.append(Path(root, filename))
@@ -110,8 +115,6 @@ def get_provider_id_from_relative_import_or_file(relative_path_or_file: str) -> 
     provider_candidate = relative_path_or_file.replace(os.sep, ".").split(".")
     while provider_candidate:
         candidate_provider_id = ".".join(provider_candidate)
-        if "google_vendor" in candidate_provider_id:
-            candidate_provider_id = candidate_provider_id.replace("google_vendor", "google")
         if candidate_provider_id in ALL_PROVIDERS:
             return candidate_provider_id
         provider_candidate = provider_candidate[:-1]
@@ -174,6 +177,10 @@ def check_if_different_provider_used(file_path: Path) -> None:
             ALL_DEPENDENCIES[file_provider]["cross-providers-deps"].append(imported_provider)
 
 
+STATES: dict[str, str] = {}
+
+FOUND_EXTRAS: dict[str, list[str]] = defaultdict(list)
+
 if __name__ == "__main__":
     find_all_providers_and_provider_files()
     num_files = len(ALL_PROVIDER_FILES)
@@ -182,8 +189,9 @@ if __name__ == "__main__":
     for file in ALL_PROVIDER_FILES:
         check_if_different_provider_used(file)
     for provider, provider_yaml_content in ALL_PROVIDERS.items():
-        if not provider_yaml_content.get("suspended"):
-            ALL_DEPENDENCIES[provider]["deps"].extend(provider_yaml_content["dependencies"])
+        ALL_DEPENDENCIES[provider]["deps"].extend(provider_yaml_content["dependencies"])
+        ALL_DEPENDENCIES[provider]["devel-deps"].extend(provider_yaml_content.get("devel-dependencies") or [])
+        STATES[provider] = provider_yaml_content["state"]
     if warnings:
         console.print("[yellow]Warnings!\n")
         for warning in warnings:
@@ -194,43 +202,48 @@ if __name__ == "__main__":
         for error in errors:
             console.print(f"[red] {error}")
         console.print(f"[bright_blue]Total: {len(errors)} errors.")
-    unique_sorted_dependencies: dict[str, dict[str, list[str]]] = defaultdict(dict)
+    unique_sorted_dependencies: dict[str, dict[str, list[str] | str]] = defaultdict(dict)
     for key in sorted(ALL_DEPENDENCIES.keys()):
         unique_sorted_dependencies[key]["deps"] = sorted(ALL_DEPENDENCIES[key]["deps"])
+        unique_sorted_dependencies[key]["devel-deps"] = ALL_DEPENDENCIES[key].get("devel-deps") or []
         unique_sorted_dependencies[key]["cross-providers-deps"] = sorted(
             set(ALL_DEPENDENCIES[key]["cross-providers-deps"])
         )
         excluded_versions = ALL_PROVIDERS[key].get("excluded-python-versions")
-        unique_sorted_dependencies[key]["excluded-python-versions"] = (
-            excluded_versions if excluded_versions else []
-        )
+        unique_sorted_dependencies[key]["excluded-python-versions"] = excluded_versions or []
+        unique_sorted_dependencies[key]["state"] = STATES[key]
     if errors:
         console.print()
         console.print("[red]Errors found during verification. Exiting!")
         console.print()
         sys.exit(1)
-    old_dependencies = DEPENDENCIES_JSON_FILE_PATH.read_text()
+    old_dependencies = (
+        DEPENDENCIES_JSON_FILE_PATH.read_text() if DEPENDENCIES_JSON_FILE_PATH.exists() else "{}"
+    )
     new_dependencies = json.dumps(unique_sorted_dependencies, indent=2) + "\n"
-    if new_dependencies != old_dependencies:
-        DEPENDENCIES_JSON_FILE_PATH.write_text(json.dumps(unique_sorted_dependencies, indent=2) + "\n")
+    old_md5sum = MY_MD5SUM_FILE.read_text().strip() if MY_MD5SUM_FILE.exists() else ""
+    old_content = DEPENDENCIES_JSON_FILE_PATH.read_text() if DEPENDENCIES_JSON_FILE_PATH.exists() else ""
+    new_content = json.dumps(unique_sorted_dependencies, indent=2) + "\n"
+    DEPENDENCIES_JSON_FILE_PATH.write_text(new_content)
+    if new_content != old_content:
         if os.environ.get("CI"):
             console.print()
-            console.print(f"[info]Written {DEPENDENCIES_JSON_FILE_PATH}")
+            console.print(f"There is a need to regenerate {DEPENDENCIES_JSON_FILE_PATH}")
             console.print(
-                f"[yellow]You will need to run breeze locally and commit "
-                f"{DEPENDENCIES_JSON_FILE_PATH.relative_to(AIRFLOW_SOURCES_ROOT)}!\n"
+                f"[red]You need to run the following command locally and commit generated "
+                f"{DEPENDENCIES_JSON_FILE_PATH.relative_to(AIRFLOW_SOURCES_ROOT)} file:\n"
             )
+            console.print("breeze static-checks --type update-providers-dependencies --all-files")
             console.print()
+            console.print("[yellow]Make sure to rebase your changes on the latest main branch!")
+            console.print()
+            sys.exit(1)
         else:
             console.print()
             console.print(
                 f"[yellow]Regenerated new dependencies. Please commit "
                 f"{DEPENDENCIES_JSON_FILE_PATH.relative_to(AIRFLOW_SOURCES_ROOT)}!\n"
             )
-            console.print(f"[info]Written {DEPENDENCIES_JSON_FILE_PATH}")
+            console.print(f"Written {DEPENDENCIES_JSON_FILE_PATH}")
             console.print()
-    else:
-        console.print(
-            "[green]No need to regenerate dependencies!\n[/]"
-            f"The {DEPENDENCIES_JSON_FILE_PATH.relative_to(AIRFLOW_SOURCES_ROOT)} is up to date!\n"
-        )
+    console.print()

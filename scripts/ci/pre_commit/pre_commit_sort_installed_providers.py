@@ -37,8 +37,12 @@ def sort_uniq(sequence):
     return sorted(set(sequence), key=stable_sort)
 
 
-if __name__ == "__main__":
-    installed_providers_path = Path(AIRFLOW_SOURCES) / "scripts" / "ci" / "installed_providers.txt"
-    content = installed_providers_path.read_text().splitlines(keepends=True)
+def sort_file(path: Path):
+    content = path.read_text().splitlines(keepends=True)
     sorted_content = sort_uniq(content)
-    installed_providers_path.write_text("".join(sorted_content))
+    path.write_text("".join(sorted_content))
+
+
+if __name__ == "__main__":
+    prod_image_installed_providers_path = AIRFLOW_SOURCES / "prod_image_installed_providers.txt"
+    sort_file(prod_image_installed_providers_path)

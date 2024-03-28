@@ -631,6 +631,7 @@ class TestBaseChartTest:
             assert objs[i]["metadata"]["name"] == ("my-release" + "-" + pc[i]["name"])
             assert objs[i]["preemptionPolicy"] == pc[i]["preemptionPolicy"]
             assert objs[i]["value"] == pc[i]["value"]
+            assert objs[i]["description"] == "This priority class will not cause other pods to be preempted."
 
     def test_priority_classes_default_preemption(self):
         obj = render_chart(
@@ -644,6 +645,29 @@ class TestBaseChartTest:
         )[0]
 
         assert obj["preemptionPolicy"] == "PreemptLowerPriority"
+        assert obj["description"] == "This priority class will not cause other pods to be preempted."
+
+    def test_redis_broker_connection_url(self):
+        # no nameoverride, redis
+        doc = render_chart(
+            "my-release",
+            show_only=["templates/secrets/redis-secrets.yaml"],
+            values={"redis": {"enabled": True, "password": "test1234"}},
+        )[1]
+        assert "redis://:test1234@my-release-redis:6379/0" == base64.b64decode(
+            doc["data"]["connection"]
+        ).decode("utf-8")
+
+    def test_redis_broker_connection_url_use_standard_naming(self):
+        # no nameoverride, redis and useStandardNaming
+        doc = render_chart(
+            "my-release",
+            show_only=["templates/secrets/redis-secrets.yaml"],
+            values={"useStandardNaming": True, "redis": {"enabled": True, "password": "test1234"}},
+        )[1]
+        assert "redis://:test1234@my-release-airflow-redis:6379/0" == base64.b64decode(
+            doc["data"]["connection"]
+        ).decode("utf-8")
 
     @staticmethod
     def default_trigger_obj(version):

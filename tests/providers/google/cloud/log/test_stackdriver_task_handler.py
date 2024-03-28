@@ -36,7 +36,7 @@ def _create_list_log_entries_response_mock(messages, token):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def clean_stackdriver_handlers():
     yield
     for handler_ref in reversed(logging._handlerList[:]):
@@ -67,6 +67,7 @@ def test_should_pass_message_to_client(mock_client, mock_get_creds_and_project_i
     mock_client.assert_called_once_with(credentials="creds", client_info=mock.ANY, project="project_id")
 
 
+@pytest.mark.db_test
 class TestStackdriverLoggingHandlerTask:
     DAG_ID = "dag_for_testing_stackdriver_file_task_handler"
     TASK_ID = "task_for_testing_stackdriver_task_handler"

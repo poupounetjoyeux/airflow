@@ -29,6 +29,8 @@ from airflow.utils.session import create_session
 from airflow.www.views import ConnectionFormWidget, ConnectionModelView
 from tests.test_utils.www import _check_last_log, _check_last_log_masked_connection, check_content_in_response
 
+pytestmark = pytest.mark.db_test
+
 CONNECTION: dict[str, Any] = {
     "conn_id": "test_conn",
     "conn_type": "http",
@@ -387,7 +389,7 @@ def test_duplicate_connection_error(admin_client):
     assert expected_connections_ids == connections_ids
 
 
-@pytest.fixture()
+@pytest.fixture
 def connection():
     connection = Connection(
         conn_id="conn1",

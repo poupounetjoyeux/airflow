@@ -65,7 +65,7 @@ class TestFlowerDeployment:
             values=values,
             show_only=["templates/flower/flower-deployment.yaml"],
         )
-        expected_result = revision_history_limit if revision_history_limit else global_revision_history_limit
+        expected_result = revision_history_limit or global_revision_history_limit
         assert jmespath.search("spec.revisionHistoryLimit", docs[0]) == expected_result
 
     @pytest.mark.parametrize(
@@ -363,6 +363,30 @@ class TestFlowerDeployment:
         assert "annotations" in jmespath.search("metadata", docs[0])
         assert jmespath.search("metadata.annotations", docs[0])["test_annotation"] == "test_annotation_value"
 
+    @pytest.mark.parametrize("probe", ["livenessProbe", "readinessProbe"])
+    def test_probe_values_are_configurable(self, probe):
+        docs = render_chart(
+            values={
+                "flower": {
+                    "enabled": True,
+                    probe: {
+                        "initialDelaySeconds": 111,
+                        "timeoutSeconds": 222,
+                        "failureThreshold": 333,
+                        "periodSeconds": 444,
+                    },
+                },
+            },
+            show_only=["templates/flower/flower-deployment.yaml"],
+        )
+
+        assert 111 == jmespath.search(
+            f"spec.template.spec.containers[0].{probe}.initialDelaySeconds", docs[0]
+        )
+        assert 222 == jmespath.search(f"spec.template.spec.containers[0].{probe}.timeoutSeconds", docs[0])
+        assert 333 == jmespath.search(f"spec.template.spec.containers[0].{probe}.failureThreshold", docs[0])
+        assert 444 == jmespath.search(f"spec.template.spec.containers[0].{probe}.periodSeconds", docs[0])
+
 
 class TestFlowerService:
     """Tests flower service."""
@@ -603,7 +627,7 @@ class TestFlowerServiceAccount:
         )
         assert jmespath.search("automountServiceAccountToken", docs[0]) is True
 
-    def test_overriden_automount_service_account_token(self):
+    def test_overridden_automount_service_account_token(self):
         docs = render_chart(
             values={
                 "flower": {
